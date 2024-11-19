@@ -25,7 +25,7 @@ extern bool literal_table_present(const char *sought, word_type value);
 // Return the word offset for val_string/value
 // entering it in the table if it's not already present
 extern unsigned int literal_table_lookup(const char *val_string,
-					 word_type value);
+										 word_type value);
 
 // === iteration helpers ===
 
