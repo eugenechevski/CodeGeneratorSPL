@@ -1,16 +1,5 @@
 #include "gen_code.h"
 
-#include <limits.h>
-#include <string.h>
-#include "spl.tab.h"
-#include "ast.h"
-#include "code.h"
-#include "id_use.h"
-#include "literal_table.h"
-#include "gen_code.h"
-#include "utilities.h"
-#include "regname.h"
-
 #define STACK_SPACE 4096
 
 // Initialize the code generator
@@ -88,22 +77,58 @@ static void gen_code_output_program(BOFFILE bf, code_seq main_cs)
 void gen_code_program(BOFFILE bf, block_t prog)
 {
     code_seq main_cs;
-    // We want to make the main program's AR look like all blocks... so:
-    // allocate space and initialize any variables
-    main_cs = gen_code_var_decls(prog.var_decls);
-    int vars_len_in_bytes = (code_seq_size(main_cs) / 2) * BYTES_PER_WORD;
 
-    // there is no static link for the program as a whole,
-    // so nothing to do for saving FP into A0 as would be done for a block
-    code_seq_concat(main_cs, code_save_registers_for_AR());
-    code_seq_concat(main_cs,
-                    gen_code_stmt(prog.stmt));
-    code_seq_concat(main_cs,
-                    code_restore_registers_from_AR());
-    code_seq_concat(main_cs,
-                    code_deallocate_stack_space(vars_len_in_bytes));
-    code_seq_add_to_end(main_cs, code_exit());
+    // Set up the program's activation record
+    main_cs = code_utils_set_up_program();
+
+    // Allocate space and initialize any variables
+    code_seq var_decls_cs = gen_code_var_decls(prog.var_decls);
+    code_seq_concat(&main_cs, var_decls_cs);
+
+    // Generate code for the program's statements
+    code_seq stmts_cs = gen_code_stmts(prog.stmts);
+    code_seq_concat(&main_cs, stmts_cs);
+
+    // Deallocate the space used by variables
+    int total_stack_space = calculate_total_stack_space(prog.var_decls);
+    code_seq dealloc_cs = code_utils_deallocate_stack_space(total_stack_space);
+    code_seq_concat(&main_cs, dealloc_cs);
+
+    // Tear down the program's activation record
+    code_seq tear_down_cs = code_utils_tear_down_program();
+    code_seq_concat(&main_cs, tear_down_cs);
+
+    // Add the exit instruction
+    code_seq_add_to_end(&main_cs, code_exit(0));
+
+    // Output the generated code
     gen_code_output_program(bf, main_cs);
+}
+
+int calculate_total_stack_space(var_decls_t var_decls)
+{
+    int total_space = 0;
+    var_decl_t *vdp = var_decls.var_decls;
+    while (vdp != NULL)
+    {
+        // Assuming each identifier takes up one word
+        int num_idents = count_idents(vdp->ident_list);
+        total_space += num_idents * BYTES_PER_WORD;
+        vdp = vdp->next;
+    }
+    return total_space;
+}
+
+int count_idents(ident_list_t idents)
+{
+    int count = 0;
+    ident_t *idp = idents.start;
+    while (idp != NULL)
+    {
+        count++;
+        idp = idp->next;
+    }
+    return count;
 }
 
 // Generate code for the var_decls_t vds to out
@@ -117,7 +142,7 @@ code_seq gen_code_var_decls(var_decls_t vds)
     {
         // generate these in reverse order,
         // so the addressing offsets work properly
-        ret = code_seq_concat(gen_code_var_decl(*vdp), ret);
+        ret = code_seq_concat(&gen_code_var_decl(*vdp), ret);
         vdp = vdp->next;
     }
     return ret;
@@ -128,25 +153,25 @@ code_seq gen_code_var_decls(var_decls_t vds)
 // (one to allocate space and another to initialize that space)
 code_seq gen_code_var_decl(var_decl_t vd)
 {
-    return gen_code_idents(vd.idents, vd.type);
+    return gen_code_idents(vd.ident_list, vd.type_tag);
 }
 
 // Generate code for the identififers in idents with type vt
 // in reverse order (so the first declared are allocated last).
 // There are 2 instructions generated for each identifier declared
 // (one to allocate space and another to initialize that space)
-code_seq gen_code_idents(idents_t idents,
-                         type_exp_e vt)
+code_seq gen_code_idents(ident_list_t idents,
+                         AST_type vt)
 {
     code_seq ret = code_seq_empty();
-    ident_t *idp = idents.idents;
+    ident_t *idp = idents.start;
     while (idp != NULL)
     {
         code_seq alloc_and_init = code_seq_singleton(code_addi(SP, SP,
                                                                -BYTES_PER_WORD));
         switch (vt)
         {
-        case float_te:
+        case var_decl_ast:
             alloc_and_init = code_seq_add_to_end(alloc_and_init,
                                                  code_fsw(SP, 0, 0));
             break;
@@ -175,17 +200,23 @@ code_seq gen_code_stmt(stmt_t stmt)
     case assign_stmt:
         return gen_code_assign_stmt(stmt.data.assign_stmt);
         break;
-    case begin_stmt:
-        return gen_code_begin_stmt(stmt.data.begin_stmt);
+    case call_stmt:
+        return gen_code_call_stmt(stmt.data.call_stmt);
         break;
     case if_stmt:
         return gen_code_if_stmt(stmt.data.if_stmt);
         break;
+    case while_stmt:
+        return gen_code_while_stmt(stmt.data.while_stmt);
+        break;
     case read_stmt:
         return gen_code_read_stmt(stmt.data.read_stmt);
         break;
-    case write_stmt:
-        return gen_code_write_stmt(stmt.data.write_stmt);
+    case print_stmt:
+        return gen_code_print_stmt(stmt.data.print_stmt);
+        break;
+    case block_stmt:
+        return gen_code_block_stmt(stmt.data.block_stmt);
         break;
     default:
         bail_with_error("Call to gen_code_stmt with an AST that is not a statement!");
@@ -232,18 +263,13 @@ code_seq gen_code_assign_stmt(assign_stmt_t stmt)
 }
 
 // Generate code for stmt
-code_seq gen_code_begin_stmt(begin_stmt_t stmt)
+code_seq gen_code_call_stmt(call_stmt_t stmt)
 {
-    code_seq ret;
-    // allocate space and initialize any variables in block
-    ret = gen_code_var_decls(stmt.var_decls);
-    int vars_len_in_bytes = (code_seq_size(ret) / 2) * BYTES_PER_WORD;
-    // in FLOAT, surrounding scope's base is FP, so that is the static link
-    ret = code_seq_add_to_end(ret, code_add(0, FP, A0));
-    ret = code_seq_concat(ret, code_save_registers_for_AR());
-    ret = code_seq_concat(ret, gen_code_stmts(stmt.stmts));
-    ret = code_seq_concat(ret, code_restore_registers_from_AR());
-    ret = code_seq_concat(ret, code_deallocate_stack_space(vars_len_in_bytes));
+    // put frame pointer from the lexical address of the name
+    // (using stmt.idu) into $t9
+    code_seq ret = code_compute_fp(T9, stmt.idu->levelsOutward);
+    // call the function
+    ret = code_seq_add_to_end(ret, code_jal(T9));
     return ret;
 }
 
@@ -274,6 +300,26 @@ code_seq gen_code_if_stmt(if_stmt_t stmt)
     return code_seq_concat(ret, cbody);
 }
 
+// Generate code for the while-statment given by stmt
+code_seq gen_code_while_stmt(while_stmt_t stmt)
+{
+    code_seq ret = code_seq_empty();
+    code_seq cbody = gen_code_stmt(*(stmt.body));
+    int cbody_len = code_seq_size(cbody);
+    // put truth value of stmt.expr in $v0
+    ret = gen_code_expr(stmt.expr);
+    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, bool_te));
+    // skip over body if $v0 contains false
+    ret = code_seq_add_to_end(ret,
+                              code_beq(V0, 0, cbody_len));
+    // add the body
+    ret = code_seq_concat(ret, cbody);
+    // add the loop back
+    ret = code_seq_add_to_end(ret,
+                              code_b(0, -cbody_len - code_seq_size(ret)));
+    return ret;
+}
+
 // Generate code for the read statment given by stmt
 code_seq gen_code_read_stmt(read_stmt_t stmt)
 {
@@ -292,14 +338,22 @@ code_seq gen_code_read_stmt(read_stmt_t stmt)
     return ret;
 }
 
-// Generate code for the write statment given by stmt.
-code_seq gen_code_write_stmt(write_stmt_t stmt)
+// Generate code for the print statment given by stmt
+code_seq gen_code_print_stmt(print_stmt_t stmt)
 {
-    // put the result into $a0 to get ready for PCH
+    // put value of expression in $v0
     code_seq ret = gen_code_expr(stmt.expr);
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(A0, float_te));
-    ret = code_seq_add_to_end(ret, code_pflt());
+    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, float_te));
+    // print the value
+    ret = code_seq_add_to_end(ret, code_fpr(V0));
     return ret;
+}
+
+// Generate code for the block statement given by stmt
+code_seq gen_code_block_stmt(block_stmt_t stmt)
+{
+    bail_with_error("gen_code_block_stmt not implemented!");
+    return;
 }
 
 // Generate code for the expression exp

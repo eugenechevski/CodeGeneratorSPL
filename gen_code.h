@@ -1,10 +1,21 @@
 #ifndef _GEN_code_seq_H
 #define _GEN_code_seq_H
 #include <stdio.h>
+#include <limits.h>
+#include <string.h>
+#include "spl.tab.h"
+#include "ast.h"
+#include "code.h"
+#include "code_seq.h"
+#include "code_utils.h"
+#include "id_use.h"
+#include "literal_table.h"
+#include "gen_code.h"
+#include "utilities.h"
+#include "regname.h"
 #include "ast.h"
 #include "bof.h"
 #include "instruction.h"
-#include "code_seq.h"
 
 // Initialize the code_seq generator
 extern void gen_code_seq_initialize();

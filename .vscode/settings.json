@@ -57,6 +57,9 @@
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
-    "gen_code.h": "c"
+    "gen_code.h": "c",
+    "literal_table.h": "c",
+    "code_seq.h": "c",
+    "code_utils.h": "c"
   }
 }
