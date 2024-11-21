@@ -90,34 +90,35 @@ void gen_code_program(BOFFILE bf, block_t prog)
     code_seq main_cs;
     // We want to make the main program's AR look like all blocks... so:
     // allocate space and initialize any variables
-    main_cs = gen_code_var_decls(prog.var_decls);
-    int vars_len_in_bytes = (code_seq_size(main_cs) / 2) * BYTES_PER_WORD;
+    main_cs = gen_code_seq_var_decls(prog.var_decls);//gen_code_seq_var_decls’
+    //int vars_len_in_bytes = (code_seq_size(main_cs) / 2) * BYTES_PER_WORD; variable that has been muted based on line 101-104
 
     // there is no static link for the program as a whole,
     // so nothing to do for saving FP into A0 as would be done for a block
-    code_seq_concat(main_cs, code_save_registers_for_AR());
-    code_seq_concat(main_cs,
-                    gen_code_stmt(prog.stmt));
-    code_seq_concat(main_cs,
+    code_seq_concat(&main_cs, code_save_registers_for_AR());
+    code_seq_concat(&main_cs,
+                    gen_code_seq_stmts(prog.stmts));// Big difference from the Float calculator. Use of gen_code_stmts rather than gen_code_seq_stmt
+    /*code_seq_concat(&main_cs,
                     code_restore_registers_from_AR());
-    code_seq_concat(main_cs,
-                    code_deallocate_stack_space(vars_len_in_bytes));
-    code_seq_add_to_end(main_cs, code_exit());
+    code_seq_concat(&main_cs,
+                    code_deallocate_stack_space(vars_len_in_bytes));*/ // this section has been muted
+    code_seq_add_to_end(&main_cs, code_exit(0));// Over here I added a 0 into the code_ exit because of the instruction exit offset should be 0
     gen_code_output_program(bf, main_cs);
 }
 
 // Generate code for the var_decls_t vds to out
 // There are 2 instructions generated for each identifier declared
 // (one to allocate space and another to initialize that space)
-code_seq gen_code_var_decls(var_decls_t vds)
+code_seq gen_code_seq_var_decls(var_decls_t vds)// the name  was modified
 {
     code_seq ret = code_seq_empty();
     var_decl_t *vdp = vds.var_decls;
     while (vdp != NULL)
     {
-        // generate these in reverse order,
+         // generate these in reverse order,
         // so the addressing offsets work properly
-        ret = code_seq_concat(gen_code_var_decl(*vdp), ret);
+        code_seq temp = gen_code_seq_var_decl(*vdp);  // Store the result in a variable
+        code_seq_concat(&temp, ret);  // Just call code_seq_concat without assigning to ret
         vdp = vdp->next;
     }
     return ret;
@@ -126,24 +127,24 @@ code_seq gen_code_var_decls(var_decls_t vds)
 // Generate code for a single <var-decl>, vd,
 // There are 2 instructions generated for each identifier declared
 // (one to allocate space and another to initialize that space)
-code_seq gen_code_var_decl(var_decl_t vd)
+code_seq gen_code_seq_var_decl(var_decl_t vd)
 {
-    return gen_code_idents(vd.idents, vd.type);
+    return /*gen_code_idents(vd.idents, vd.type);*/ gen_code_seq_idents(vd.ident_list );
 }
 
 // Generate code for the identififers in idents with type vt
 // in reverse order (so the first declared are allocated last).
 // There are 2 instructions generated for each identifier declared
 // (one to allocate space and another to initialize that space)
-code_seq gen_code_idents(idents_t idents,
-                         type_exp_e vt)
+code_seq gen_code_seq_idents(ident_list_t idl) // this was changed+ modified compared to float calculato
+                         
 {
-    code_seq ret = code_seq_empty();
-    ident_t *idp = idents.idents;
+   /* code_seq ret = code_seq_empty();
+    //ident_t *idp = idents.idents;
+    ident_t *idp = idl.start;
     while (idp != NULL)
     {
-        code_seq alloc_and_init = code_seq_singleton(code_addi(SP, SP,
-                                                               -BYTES_PER_WORD));
+        code_seq alloc_and_init = code_seq_singleton(code_addi(SP, SP, -BYTES_PER_WORD));
         switch (vt)
         {
         case float_te:
@@ -164,7 +165,27 @@ code_seq gen_code_idents(idents_t idents,
         ret = code_seq_concat(alloc_and_init, ret);
         idp = idp->next;
     }
-    return ret;
+    return ret;*/
+    code_seq gen_code_seq_idents(ident_list_t idl)
+    {
+    code_seq ret = code_seq_empty();  // Start with an empty code sequence
+    ident_t *idp = idl.start;         // Start from the first identifier in the list
+
+    while (idp != NULL)
+      {
+          // Generate the code to allocate space for this identifier
+          // We assume you have a function gen_code_seq_alloc_ident that generates allocation code
+          code_seq alloc_and_init = gen_code_seq_alloc_ident(idp);
+        
+          // Add the allocation and initialization code in reverse order
+          code_seq_concat(&alloc_and_init, ret);  // Concatenate the allocation code with the result
+
+          // Move to the next identifier in the list
+          idp = idp->next;
+      }
+
+      return ret;
+   }
 }
 
 // Generate code for stmt
@@ -173,16 +194,22 @@ code_seq gen_code_stmt(stmt_t stmt)
     switch (stmt.stmt_kind)
     {
     case assign_stmt:
-        return gen_code_assign_stmt(stmt.data.assign_stmt);
+        return /*gen_code_assign_stmt(stmt.data.assign_stmt);*/ gen_code_seq_assign_stmt(stmt.data.assign_stmt);
         break;
-    case begin_stmt:
+    /*case begin_stmt:
         return gen_code_begin_stmt(stmt.data.begin_stmt);
+        break;*/
+    case call_stmt:
+        return gen_code_seq_call_stmt(stmt.data.call_stmt);
         break;
     case if_stmt:
-        return gen_code_if_stmt(stmt.data.if_stmt);
+        return gen_code_seq_if_stmt(stmt.data.if_stmt);
+        break;
+    case while_stmt:
+        return gen_code_seq_while_stmt(stmt.data.while_stmt);
         break;
     case read_stmt:
-        return gen_code_read_stmt(stmt.data.read_stmt);
+        return gen_code_seq_read_stmt(stmt.data.read_stmt);
         break;
     case write_stmt:
         return gen_code_write_stmt(stmt.data.write_stmt);
@@ -196,7 +223,7 @@ code_seq gen_code_stmt(stmt_t stmt)
 }
 
 // Generate code for stmt
-code_seq gen_code_assign_stmt(assign_stmt_t stmt)
+code_seq gen_code_seq_assign_stmt(assign_stmt_t stmt)
 {
     // can't call gen_code_ident,
     // since stmt.name is not an ident_t
@@ -230,6 +257,15 @@ code_seq gen_code_assign_stmt(assign_stmt_t stmt)
     }
     return ret;
 }
+// Generate code for stmt
+code_seq gen_code_seq_call_stmt(call_stmt_t stmt)
+{
+    // can't call gen_code_ident,
+    // since stmt.name is not an ident_t
+    code_seq ret;
+    ret = gen_code_expr(*(stmt.expr));
+    return ret;
+}
 
 // Generate code for stmt
 code_seq gen_code_begin_stmt(begin_stmt_t stmt)
@@ -241,14 +277,14 @@ code_seq gen_code_begin_stmt(begin_stmt_t stmt)
     // in FLOAT, surrounding scope's base is FP, so that is the static link
     ret = code_seq_add_to_end(ret, code_add(0, FP, A0));
     ret = code_seq_concat(ret, code_save_registers_for_AR());
-    ret = code_seq_concat(ret, gen_code_stmts(stmt.stmts));
+    ret = code_seq_concat(ret, gen_code_seq_stmts(stmt.stmts));
     ret = code_seq_concat(ret, code_restore_registers_from_AR());
     ret = code_seq_concat(ret, code_deallocate_stack_space(vars_len_in_bytes));
     return ret;
 }
 
 // Generate code for the list of statments given by stmts
-code_seq gen_code_stmts(stmts_t stmts)
+code_seq gen_code_seq_stmts(stmts_t stmts)
 {
     code_seq ret = code_seq_empty();
     stmt_t *sp = stmts.stmts;
@@ -257,6 +293,16 @@ code_seq gen_code_stmts(stmts_t stmts)
         ret = code_seq_concat(ret, gen_code_stmt(*sp));
         sp = sp->next;
     }
+    return ret;
+}
+
+// Generate code for stmt
+code_seq gen_code_seq_while_stmt(while_stmt_t stmt)
+{
+    // can't call gen_code_ident,
+    // since stmt.name is not an ident_t
+    code_seq ret;
+    ret = gen_code_expr(*(stmt.expr));
     return ret;
 }
 
@@ -567,4 +613,22 @@ code_seq gen_code_logical_not_expr(expr_t exp)
     // push the result on the stack
     ret = code_seq_concat(ret, code_push_reg_on_stack(AT, bool_te));
     return ret;
+}
+/*Brand new function responsible for generating the code sequence that allocates space for a variable (identifier) on the stack and initializes it with a default value, typically 0 */
+code_seq gen_code_seq_alloc_ident(ident_t *idp)
+{
+    code_seq ret = code_seq_empty();  // Start with an empty code sequence
+    
+    // Assuming that each identifier requires 4 bytes of space
+    // (adjust this based on your VM's size for each variable)
+    int size_of_ident = 4;  // Adjust the size if necessary
+
+    // 1. Allocate space by subtracting from the stack pointer (SP)
+    ret = code_seq_add_to_end(ret, code_addi(SP, SP, -size_of_ident));
+
+    // 2. Initialize the identifier (e.g., set it to 0)
+    // Assuming that a register 'zero' holds the value 0
+    ret = code_seq_add_to_end(ret, code_swr(SP, zero, 0));  // Store 0 into the allocated space
+
+    return ret;  // Return the code sequence
 }

@@ -4,7 +4,9 @@
 #include <assert.h>
 #include "utilities.h"
 #include "regname.h"
+#include "code.h"
 #include "code_seq.h"
+
 
 static void code_seq_okay(code_seq seq)
 {

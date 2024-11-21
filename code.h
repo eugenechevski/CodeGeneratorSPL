@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "machine_types.h"
 #include "instruction.h"
+#include "code_seq.h"
 
 // SSM assembly language instructions (that can be in linked lists)
 typedef struct code_s {
@@ -217,5 +218,13 @@ extern code *code_stra();
 // Create and return a fresh instruction
 // with the named mnemonic and parameters
 extern code *code_notr();
+
+// Set up the runtime stack for a procedure,
+// where the static link is found in register $a0.
+// Modifies when executed, the SP register, the FP register,
+// and memory from SP to SP - MINIMAL_STACK_ALLOC_BYTES
+// (inclusive)
+extern code_seq code_save_registers_for_AR();
+
 
 #endif

@@ -460,3 +460,35 @@ code *code_notr()
     return create_syscall_instr(stop_tracing_sc,0,0);
 }
 
+#define MINIMAL_STACK_ALLOC_IN_WORDS 12
+#define MINIMAL_STACK_ALLOC_BYTES (BYTES_PER_WORD*MINIMAL_STACK_ALLOC_IN_WORDS)
+
+// Set up the runtime stack for a procedure,
+// where the static link is found in register $a0.
+// Modifies when executed, the SP register, the FP register,
+// and memory from SP to SP - MINIMAL_STACK_ALLOC_BYTES
+// (inclusive)
+code_seq code_save_registers_for_AR()
+{
+    // assume that SP is pointing to the lowest local storage already allocated
+    code_seq ret;
+    // push stack_pointer at word index 0 - 1 from current SP
+    ret = code_seq_singleton(code_swr(SP, SP, -1));
+    // push the frame pointer (dynamic link) at word index -2
+    code_seq_add_to_end(&ret, code_swr(SP, FP, -2));
+    // save SP into FP register so FP points to the base of the AR
+    code_seq_add_to_end(&ret, code_add(0, SP, FP,ADD_F));
+    // allocate the space on the stack, by subtracting from SP
+    code_seq_add_to_end(&ret, code_addi(SP, SP, - MINIMAL_STACK_ALLOC_BYTES));
+    // push the static link at word index -3
+    code_seq_add_to_end(&ret, code_swr(FP, GP, -3));
+    // push the return address at word index 3
+    code_seq_add_to_end(&ret, code_swr(FP, RA, -4));
+    // save the registers $s0 to $s7 (inclusive)
+    int idx = -5;
+    for (int rn = GP; rn <= RA; rn++) {
+	code_seq_add_to_end(&ret, code_swr(FP, rn, idx--));
+    }
+    return ret;
+}
+

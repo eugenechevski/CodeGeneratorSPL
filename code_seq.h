@@ -2,7 +2,10 @@
 #ifndef _CODE_SEQ_H
 #define _CODE_SEQ_H
 #include <stdbool.h>
-#include "code.h"
+
+// Forward declare 'code' type to avoid circular dependency
+struct code_s;
+typedef struct code_s code;  // Declare code as a type
 
 // code sequences are linked lists
 // with an additional last pointer to the last node

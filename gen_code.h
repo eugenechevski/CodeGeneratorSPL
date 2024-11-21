@@ -36,11 +36,17 @@ extern code_seq gen_code_seq_idents(ident_list_t idents);
 // Generate code_seq for stmt
 extern code_seq gen_code_seq_stmt(stmt_t stmt);
 
-// Generate code_seq for stmt
+// Generate code_seq for assign stmt
 extern code_seq gen_code_seq_assign_stmt(assign_stmt_t stmt);
+
+//Generate code_seq for call stmt
+extern  code_seq gen_code_seq_call_stmt(call_stmt_t stmt);
 
 // Generate code_seq for the list of statements given by stmts to out
 extern code_seq gen_code_seq_stmts(stmts_t stmts);
+
+//Generate code_seq for while stmt
+extern code_seq gen_code_seq_while_stmt(while_stmt_t stmt);
 
 // Generate code_seq for the if-statement given by stmt
 extern code_seq gen_code_seq_if_stmt(if_stmt_t stmt);
@@ -91,5 +97,7 @@ extern code_seq gen_code_seq_number(number_t num);
 // and using V0 and AT as temporary registers
 // May also modify SP, HI,LO when executed
 extern code_seq gen_code_seq_logical_not_expr(expr_t exp);
+
+extern code_seq gen_code_seq_alloc_ident(ident_t *idp);
 
 #endif
