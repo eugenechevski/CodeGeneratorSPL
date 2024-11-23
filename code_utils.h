@@ -11,7 +11,7 @@
 extern code_seq code_utils_copy_regs(reg_num_type t, reg_num_type s);
 
 // Return a code sequence that loads the static link
-// which is SAVEDSTATIC_LINK_OFFSET from the address contained in register b,
+// (which is SAVEDSTATIC_LINK_OFFSET from the address contained in register b,
 // and place it in register rt.
 // Modifies only register rt.
 extern code_seq code_utils_load_static_link_into_reg(reg_num_type t,

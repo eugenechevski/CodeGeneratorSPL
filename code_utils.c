@@ -1,4 +1,4 @@
-// $Id: code_utils.c,v 1.8 2024/11/11 23:01:08 leavens Exp $
+// $Id: code_utils.c,v 1.12 2024/11/18 22:03:45 leavens Exp leavens $
 #include <assert.h>
 #include "regname.h"
 #include "code.h"
@@ -11,14 +11,13 @@
 #define SAVED_STATIC_LINK_OFFSET (-3)
 #define SAVED_RA_OFFSET (-4)
 
-// Requires: t != SP && s != SP
+// Requires: t != SP && s != SP, if the VM has no CPR instruction
 // Return a code sequence that copies the value from register s
-// into register t, using the top of the stack as a temporary.
-// Modifies: t (and temporarily, SP)
+// into register t.
+// If the VM has no CPR instruction, then this uses
+// the top of the stack as a temporary and so modifies SP.
 code_seq code_utils_copy_regs(reg_num_type t, reg_num_type s)
 {
-    assert(t != SP);
-    assert(s != SP);
     code_seq ret = code_seq_singleton(code_cpr(t, s));
     // If the SSM didn't have the cpr instruction
     // one could use the top of the stack as a temporary, as follows
@@ -48,6 +47,7 @@ code_seq code_utils_load_static_link_into_reg(reg_num_type t,
 // frame pointer for the given number of scopes outward in register reg
 code_seq code_utils_compute_fp(reg_num_type reg, unsigned int levelsOut)
 {
+    // start in the current AR (so levelsOut == 0 addresses locals properly)
     assert(reg != FP && reg != RA);
     code_seq ret
 	= code_utils_copy_regs(reg, FP);
@@ -84,7 +84,7 @@ code_seq code_utils_deallocate_stack_space(immediate_type words)
 // Requires: $r3 holds the static link (from the current AR)
 // Set up the runtime stack for a procedure,
 // where the static link is found in register $r3.
-// Modifies when executed, the SP register, the FP register,
+// Modifies when executed, the SP register, the FP register, $r3,
 // and memory from SP to SP - MINIMAL_STACK_ALLOC_IN_WORDS
 // (inclusive)
 code_seq code_utils_save_registers_for_AR()
@@ -117,9 +117,9 @@ code_seq code_utils_save_registers_for_AR()
 // Restore the callee's registers from the places they are saved on the stack.
 // This restores the SP, FP, and RA registers only.
 // (It is assumed that the stack already holds the static link address)
-// Modifies when executed, the SP register, the FP register, the RA register.
-// restoring their saved contents from memory
-// (as saved by code_utils_save_registers_for_AR)
+// Modifies when executed, the SP register, the FP register, the RA register
+// and the $r3 register, restoring the saved contents of SP, FP, and RA
+// from memory (as saved by code_utils_save_registers_for_AR).
 code_seq code_utils_restore_registers_from_AR()
 {
     code_seq ret = code_seq_empty();
@@ -142,8 +142,6 @@ code_seq code_utils_set_up_program()
     // set up the saved registers
     ret = code_utils_copy_regs(3, FP);  // save FP into $r3
     code_seq_concat(&ret, code_utils_save_registers_for_AR());
-    // use what will be the new FP as the saved static link
-    code_seq_add_to_end(&ret, code_swr(FP, SAVED_STATIC_LINK_OFFSET, FP));
     return ret;
 }
 

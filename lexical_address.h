@@ -1,4 +1,4 @@
-/* $Id: lexical_address.h,v 1.3 2023/11/13 05:13:56 leavens Exp $ */
+/* $Id: lexical_address.h,v 1.4 2024/11/15 18:15:21 leavens Exp leavens $ */
 #ifndef _LEXICAL_ADDRESS_H
 #define _LEXICAL_ADDRESS_H
 
@@ -7,7 +7,7 @@
 
 typedef struct {
     unsigned int levelsOutward;
-    unsigned int offsetInAR; // in bytes
+    unsigned int offsetInAR; // in words
 } lexical_address;
 
 // Allocate and return a (fresh) lexical address

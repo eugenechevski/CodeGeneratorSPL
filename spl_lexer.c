@@ -535,7 +535,7 @@ int yy_flex_debug = 0;
 #define YY_RESTORE_YY_MORE_OFFSET
 char *yytext;
 #line 1 "spl_lexer.l"
-/* $Id: spl_lexer.l,v 1.1 2024/10/23 12:17:38 leavens Exp $ */
+/* $Id: spl_lexer.l,v 1.2 2024/11/21 02:11:10 leavens Exp leavens $ */
 /* Lexical Analyzer for SPL */
 #line 10 "spl_lexer.l"
 #include <stdio.h>
@@ -990,7 +990,7 @@ YY_RULE_SETUP
 case 13:
 YY_RULE_SETUP
 #line 132 "spl_lexer.l"
-{ tok2ast(eqsym); return eqeqsym; }
+{ tok2ast(eqeqsym); return eqeqsym; }
 	YY_BREAK
 case 14:
 YY_RULE_SETUP

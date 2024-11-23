@@ -1,4 +1,4 @@
-/* $Id: scope_check.c,v 1.21 2024/11/13 15:23:58 leavens Exp $ */
+/* $Id: scope_check.c,v 1.22 2024/11/16 20:34:50 leavens Exp $ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -218,7 +218,7 @@ void scope_check_stmt(stmt_t *stmt)
 void scope_check_assignStmt(assign_stmt_t *stmt)
 {
     stmt->idu = scope_check_ident_declared(*(stmt->file_loc), stmt->name);
-    id_attrs attrs = *(stmt->idu->attrs);
+    id_attrs attrs = *id_use_get_attrs(stmt->idu);
     if (attrs.kind != variable_idk) {
 	bail_with_prog_error(attrs.file_loc,
 			     "Must be a variable on the left-hand side of an assignment statement, not the %s \"%s\"",
@@ -277,7 +277,7 @@ void scope_check_whileStmt(while_stmt_t *stmt)
 void scope_check_readStmt(read_stmt_t *stmt)
 {
     stmt->idu = scope_check_ident_declared(*(stmt->file_loc), stmt->name);
-    id_attrs attrs = *(stmt->idu->attrs);
+    id_attrs attrs = *id_use_get_attrs(stmt->idu);
     if (attrs.kind != variable_idk) {
 	bail_with_prog_error(attrs.file_loc,
 			     "The name (%s) in a read statement must be a variable, not a %s",

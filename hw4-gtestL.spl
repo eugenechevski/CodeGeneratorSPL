@@ -1,4 +1,4 @@
-% $Id: hw4-gtestL.spl,v 1.2 2024/09/17 21:48:53 leavens Exp $
+% $Id: hw4-gtestL.spl,v 1.2 2024/09/17 21:48:53 leavens Exp leavens $
 begin
   const two = 2;
   const three = 3;

@@ -1,4 +1,4 @@
-/* $Id: spl_lexer.l,v 1.1 2024/10/23 12:17:38 leavens Exp $ */
+/* $Id: spl_lexer.l,v 1.2 2024/11/21 02:11:10 leavens Exp leavens $ */
 /* Lexical Analyzer for SPL */
 
 %option header-file = "spl_lexer.h"
@@ -128,7 +128,7 @@ IGNORED         [ \t\v\f\r]
 \;              { return semisym; }
 ,               { return commasym; }
 :=              { return becomessym; }
-==              { tok2ast(eqsym); return eqeqsym; }
+==              { tok2ast(eqeqsym); return eqeqsym; }
 =               { tok2ast(eqsym); return eqsym; }
 !=              { tok2ast(neqsym); return neqsym; }
 \<=             { tok2ast(leqsym); return leqsym; }
