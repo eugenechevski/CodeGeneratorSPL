@@ -1,0 +1,969 @@
+         OVERVIEW OF CODE GENERATION
+
+ .. ASTs...-> [ Static Analysis ]
+                     |
+                     | IR
+                     v
+              [ Code Generation ]
+                     |
+                     | Machine Code
+                     |
+                     v
+               SSM Virtual Machine
+                  Execution
+
+The IR (= Intermediate Representation)
+    records
+
+
+
+
+            IR TREES
+
+An IR is a tree structure,
+   contains information from parsing,
+    and static analysis, including attributes
+
+
+
+
+
+Helps in modularizing compilers
+and code generation
+
+   WITHOUT IR               WITH IR
+
+Java ------>x86       Java        ->x86
+     \/ |||                \     /
+   C ------>MIPS         C \\   /-->MIPS
+     \\/ ||                 ->IR
+ C++ ------>Sparc      C++ //   \-->Sparc
+      \\\/                 /     \
+  C# ------>A1          C#/       \>A1
+
+
+          OUR CHOICES FOR AN IR
+
+To keep things simple, we will use
+   a modified AST type as an IR
+
+Parser:
+   - records structure of programs (ASTs)
+   - provides placeholders for attributes
+
+Static analysis:
+   - records attributes needed for code generation
+            (in the AST)
+
+
+   GENERAL STRATEGY FOR CODE GENERATION
+
+Don't try to optimize!
+
+
+Follow the grammar of the ASTs
+   attributes filled in during scope checking
+
+
+Think about the invariants!
+
+
+
+Trust the recursion!
+
+
+       FOLLOWING THE GRAMMAR
+
+Code resembles the grammar that
+    describes the input data
+
+When the grammar is recursive
+   the code should also be recursive
+
+When the grammar has alternatives
+   the code has conditionals or a switch
+
+
+
+
+
+
+         TARGET: CODE SEQUENCES
+
+Need lists of machine code instructions
+    (we will use linked lists)
+    
+Why? because it often takes many instructions
+     to accomplish one thing from the language
+
+
+
+
+           THE CODE TYPE
+
+// file code.h
+#include "instruction.h"
+
+// machine code instructions
+typedef struct code_s {
+    struct code_s *next;
+    bin_instr_t instr;
+} code;
+
+// Code creation functions below
+// with the named mnemonic and parameters
+extern code *code_nop();
+extern code *code_add(reg_num_type t,
+                      offset_type ot,
+                      reg_num_type s,
+                      offset_type os);
+extern code *code_sub(reg_num_type t,
+                      offset_type ot,
+		      reg_num_type s,
+                      offset_type os);
+// ...
+
+
+     REPRESENTING CODE SEQUENCES IN C
+
+// file code_seq.h
+#include "code.h"
+
+// code sequences
+typedef struct {
+    code *first;
+    code *last;
+} code_seq;
+
+extern code_seq code_seq_empty();
+
+extern code_seq code_seq_singleton(
+                                 code *c);
+
+extern bool code_seq_is_empty(
+                            code_seq seq);
+
+// Requires: !code_seq_is_empty(seq)
+// Return the first element...
+extern code *code_seq_first(code_seq seq);
+
+// Requires: !code_seq_is_empty(seq)
+// Return the rest of the given sequence
+extern code_seq code_seq_rest(
+                            code_seq seq);
+
+// Return the size (number of words)
+extern unsigned int code_seq_size(
+                            code_seq seq);
+
+// ...
+
+// Requires: c != NULL && seq != NULL
+// Modify seq to add the given
+//   code *c added to its end
+extern void code_seq_add_to_end(
+                 code_seq *seq, code *c);
+
+// Requires: s1 != NULL && s2 != NULL
+// Modifies s1 to be the concatenation
+// of s1 followed by s2
+extern void code_seq_concat(code_seq *s1,
+                            code_seq s2);
+
+// ...
+
+ STRATEGIES FOR DESIGNING CODE SEQUENCES
+
+0. Figure out what you want to do (for the PL thing)
+1. Work backwards
+   a. select the instruction that does that
+   b. generate code to set up the stack or memory, etc.
+   c. generate that instruction
+   d. (generate cleanup code, optionally)
+
+
+
+
+
+       EXAMPLE: EXPRESSION EVALUATION
+
+Example: (E1 + E2) - (E3 / E4).
+
+
+Constraints:
+ - Expressions have a result value
+ - Binary operations (+, -, *, /)
+   in the SSM
+
+
+Where should the result be stored?
+     
+  Can it be a register?
+     No. Have an unbounded number of subexpressions
+         but only finite number of registers.
+
+  So we'll put results on top of the runtime stack
+
+  Are there side-effects in SPL expressions?
+     No, there aren't any.
+  Can order of evaluating sub-expressions matter?
+     No.
+
+
+  Code to evaluate E2 op E3
+
+     [code to evaluate E3, pushing value v3 on stack]
+     [code to evaluate E2, pushing value v2 on stack]
+     [instruction to compute v2 op v3
+        and put result at SP+1]
+     [deallocate 1 word from the stack]
+
+     E.g., for E2 - E3
+     [code to evaluate E3, pushing value v3 on stack]
+     [code to evaluate E2, pushing value v2 on stack]
+     SUB $sp,1,$sp,1     # subtracts v3 from v2
+     ARI $sp,1   # use code_utils_deallocate_stack_space(1)
+
+// gen_code_bin_op_expr would have code like:
+ 
+    // ... determine we are doing a subtraction...
+     code_seq ret = gen_code_expr(/* E3 */);
+     code_seq_concat(&ret,
+                     gen_code_expr(/* E2 */));
+     code_seq_add_to_end(&ret, code_sub(SP,1,SP,1));
+     code_seq_add_concat(&ret,
+                         code_utils_deallocate_stack_space(1));
+
+
+
+         ADDRESSING VARIABLES
+
+Consider an expression
+
+          x
+
+where x is a variable
+
+How to get x's value on the top of stack?
+
+    [allocate a word on top of the stack]
+    [copy x's value from it's location to top of the stack]
+
+
+    Need levels outwards from current scope
+       and the offset
+
+    How to find the offset?
+       it's in the attributes
+       need the id_use for the name x
+        (we will assume that is in the AST for x)
+
+    We need the base address for x's AR
+
+
+
+
+
+
+
+
+ USE OF REGISTERS IN A REGISTER-BASED ISA
+
+For a register-based ISA:
+
+What if the target register
+is already in use?
+   e.g., in   x := y + z
+
+Strategies:
+ - use a different register
+
+
+ - save and restore
+
+
+
+
+    GENERAL STRATEGY FOR EXPRESSIONS
+
+Each expression's value goes
+    on "top" of the runtime stack (at offset 0 from SP)
+
+
+To operate on an expression's value
+   push its value on the stack
+     (need to use the CPW instruction)
+
+
+
+
+      BACKGROUND: SSM INSTRUCTIONS
+
+ ADD t,ot,s,os
+            "M[GPR[t]+ot]
+              = M[GPR[SP]] + M[GPR[s]+os]"
+
+ SUB t,ot,s,os
+            "M[GPR[t]+ot]
+              = M[GPR[SP]] - M[GPR[s]+os]"
+
+ MUL s,o    "(HI,LO)
+             = M[GPR[SP]] * M[GPR[s]+ o]"
+
+ DIV s,o    "HI
+             = M[GPR[SP]] % M[GPR[s] + o]"
+            and
+            "LO
+             = M[GPR[SP]] / M[GPR[s] + o]"
+
+ CPW t,ot,s,os
+            "M[GPR[t+ot] = M[GPR[s]+os]"
+
+ CPR t,s    "GPR[t] = GPR[s]"
+
+ ADDI r,o,i "M[GPR[r]+o]
+             = M[GPR[r]+o] + sgnExt(i)"
+
+What limitations on immediate operands?
+  they must fit in 16 bits
+
+
+What if the literal doesn't fit?
+  const big = 1999999999;
+
+
+
+
+            LITERAL TABLE IDEA
+
+- Store literal values in a "literal table"
+
+
+- Keep mapping from values (of numbers) to offsets
+      from the GP address (the start of the data section)
+
+- Initialize the SSM's memory
+   from the BOF file's data section
+
+    numbers mapped to offsets (from GP) by literal table
+    write the numbers to the BOF file in order of offset
+    so the VM will load (from the BOF file) them
+    into the data section with the expected offsets
+
+
+
+
+  LITERAL TABLE IN EXPRESSION EVALUATION
+
+Idea for code for numeric literal expression, N:
+
+    0. Assume that a word has been allocated on the stack
+         (use code_utils_allocate_stack_space_for_AR())
+    1. Look up N in literal table,
+    2. Receive N's offset (from GP) of N,
+	 call that offset ofst
+    3. generate a copy (CPW) instruction
+         to copy that to value into the top of stack
+	    CPW $sp, 0, $gp, ofst
+
+
+
+    LITERAL TABLE AND BOF DATA SECTION
+
+How to get the literals into memory
+   with the assumed offsets?
+
+    write the values in offset order into the BOF file's
+    data section
+       use bof_write_word() to do that
+
+
+
+   LAYOUT OF AN ACTIVATION RECORD
+
+Must save SP, FP, static link, RA registers
+
+Can't have offset of static link
+    at a varying offset from FP
+
+Layout 1:
+                                   offset
+  FP --> [  saved     SP          ]0
+         [  registers FP          ]-1
+         [            static link ]-2
+         [            RA          ]-3
+         [ local constants        ]-4
+         [      ...               ]
+         [ local variables        ]
+         [      ...               ]
+         [ temporary storage      ]
+   SP -->[      ...               ]
+
+
+Layout 2:
+                                   offset
+         [      ...               ]
+         [ local variables        ]
+         [      ...               ]
+   FP -->[ local constants        ] 0
+         [  saved     SP          ]-1
+         [  registers FP          ]-2
+         [            static link ]-3
+         [            RA          ]-4
+         [ temporary storage      ]
+   SP -->[      ...               ]
+
+                                   offset
+Layout 3:
+         [ saved     SP           ] 4
+         [ registers FP           ] 3
+         [           static link  ] 2
+         [           RA           ] 1
+   FP -->[ local constants        ] 0
+         [      ...               ]
+         [ local variables        ]
+         [      ...               ]
+         [ temporary storage      ]
+   SP -->[      ...               ]
+
+Advantages of layout 1:
+    simple
+    offsets of variables have a standard offset subtracted
+    but variable (and constant) offsets have to be negated
+    tracing is easy for the VM
+
+
+Advantages of layout 2:
+   simpler offset calculations for variables (and constants)
+   variable offsets grow upwards (with positive offsets)
+   can be easily expanded to save more registers
+   offsets are smaller than in layout 1
+   but the tracing from our old VM doesn't work right
+
+Advantages of layout 3:
+   simplified offset calculations vs. layout 1
+   but more work than in layout 2
+   offsets are smaller than in layout 1
+   tracing doesn't change from the old VM
+
+I'm using layout 2 in my compiler,
+ but you could use one of the others
+
+
+ TRANSLATION SCHEME FOR SPL DECLARATIONS
+
+   const c = n;
+   var x;
+
+When do blocks start executing?
+   when the code runs into them,
+   executing the block statement
+
+What should be done then?
+    [allocate and initialize all the variables
+       and constants]
+    [save the necessary registers (SP, FP, static link,RA)]
+
+
+How do we know how much space to allocate?
+    (could look in the AST and count them)
+    But easier to just have each declaration
+      allocate its own space, and put a sequence together
+
+How to initialize constants?
+    use literal table to find each constant's offset
+    then copy from $gp+offset to the storage allocated
+
+
+How to initialize variables?
+    [allocate a word on the stack]
+    [zero out that word on the stack]
+         code_lit(SP, 0, 0)
+
+     SRI $sp, 1
+     LIT $sp, 0, 0
+
+
+
+ TRANSLATION SCHEME FOR NUMERIC LITERALS
+
+    e.g., in the SPL statement
+           print 7
+
+    - always use the literal table
+      so suppose offset of the number is ofst
+    - want to put value at $gp+ofst on the stack
+
+             [allocate a word on the stack]
+	     [copy value to the stack]
+
+             // make ofst be the offset from GP
+             code_seq ret =
+               code_utils_allocate_stack_space(1);
+	     code_seq_add_to_end(&ret,
+	                         code_cpw(SP,0,GP,ofst));
+
+
+
+
+  TRANSLATION SCHEME FOR VARIABLE NAMES
+           (AND CONSTANTS)
+
+  want to use CPW instruction to get the value
+     and put it on the stack
+
+  need the lexical address for finding the value
+     instructions in the SSM all use a base register
+       and an offset
+
+  I used $r3 for this
+
+  suppose the lexical address of the variable, x, is
+     (levelsOut, ofst)
+
+    # The following is done by code_utils_compute_fp
+    # load the FP for x's stack frame into $r3
+    [load FP into $r3]  # this is for current AR
+    [load the next static link into $r3]  }
+       ...                                } levelsOut times
+    [load the next static link into $r3]  }
+    # $r3 is the base of x's AR
+    [push x's value using $r3 as base onto stack]
+         CPW $sp, 0, $r3, ofst
+
+
+
+
+
+        TRANSLATING EXPRESSIONS
+
+Abstract syntax of expressions in SPL
+
+  E ::= E1 o E2 | x | n
+  o ::= + | - | * | /
+
+
+Simplest cases are:
+
+
+
+ TRANSLATION SCHEME FOR BASIC STATEMENTS
+
+
+    begin end
+
+
+
+
+    x := E
+
+
+
+
+
+    read x
+
+
+
+
+
+    print E
+
+
+
+
+
+
+
+        GRAMMAR FOR CONDITIONS
+
+<condition> ::= divisible <expr> by <expr>
+              | <expr> <rel-op> <expr>
+<rel-op> ::= == | != | < | <= | > | >=
+
+So the recursion structure of the code is?
+
+
+
+
+
+
+Code looks like:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     RELATIONAL OPERATOR CONDITIONS
+
+<condition> ::= <expr> <rel-op> <expr>
+
+A design for rel-op conditions:
+
+ Goal: put true of false on top of stack
+       for the value of the condition
+
+ One case for each condition:
+
+ Consider case op is !=
+
+  [Evaluate E2 to top of stack]
+  [Evaluate E1 to top of stack]
+  # What does the stack look like? (1)
+  # jump ahead 3 instrs,
+  # if memory[GPR[$sp]]
+  #              != memory[GPR[$sp]+1]
+  BNE $sp, 1, 3
+  # put 0 (false) at SP+1
+  LIT $sp, 1, 0
+  # jump over next instr
+  JREL 2
+  # put 1 (true) at SP+1
+  # What does the stack look like (2)?
+  # deallocate one word from stack
+  ARI $sp, 1
+  # now top of stack has truth value
+
+ Consider E1 >= E2
+  [Evaluate E2 to top of stack]
+  [Evaluate E1 to top of stack]
+  # What does the stack look like? (3)
+  SUB $sp, 0, $sp, 1  # SP = E1 - E2
+  # jump ahead 3 instrs, if geq
+  BGEZ $sp, 1, 3      # skip 2 instrs
+  # put 0 (false) at SP+1
+  LIT $sp, 1, 0
+  # jump over next instr
+  JREL 2
+  # put 1 (true) at SP+1
+  LIT $sp, 1, 1
+  # What does the stack look like (4)?
+  # deallocate one word from stack
+  ARI $sp, 1
+  # now top of stack has truth value
+
+     CODE FOR BINARY RELOP CONDITIONS
+
+// file ast.h
+typedef struct {
+    file_location *file_loc;
+    AST_type type_tag;
+    expr_t expr1;
+    token_t rel_op;
+    expr_t expr2;
+} rel_op_condition_t;
+
+
+
+// file gen_code.c
+
+// Generate code for cond,
+// putting its truth value
+// on top of the runtime stack
+// May also modify SP,HI,LO, and $r3
+code_seq gen_code_rel_op_condition(
+              rel_op_condition_t cond)
+{
+
+
+
+
+
+
+
+
+
+}
+
+
+ ABSTRACT SYNTAX FOR COMPOUND STATEMENTS
+
+S ::= begin S*
+    | if C S1* S2*
+    | while C S*
+
+So what is the code structure?
+
+
+
+
+Source and generated code look like:
+
+
+  begin S1 S2 ... end
+
+
+
+
+
+
+
+  if C S1
+
+
+
+
+
+
+  if C S1 S2
+
+
+
+
+
+
+
+
+
+
+
+
+
+  while C S
+
+
+
+
+
+
+
+
+
+
+
+
+      SUPPORTING PROCEDURES AND CALLS
+
+Main issues:
+   - storing their code
+     Why?
+
+
+
+   - knowing exactly where each starts
+     Why?
+
+
+
+Another issue:
+   - sending the right static link
+
+
+       WHERE TO PUT PROCEDURE CODE?
+
+Possible layouts in VM's code array:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      NESTED PROCEDURES ARE A PROBLEM
+
+begin
+  proc A
+  begin
+    proc B
+    begin
+      # B's body code...
+      call A # ...
+      # ...
+    end;
+    # A's body code
+    call B # ...
+    # ...
+  end;
+  call A
+end.
+
+If lay out the code as
+
+   [ code for A ]
+   [ code for B ]
+
+How do we know the address of B
+    to compile the call to B in A?
+
+
+What about the other direction?
+
+
+
+
+   RECURSIVE PROCEDURES, SIMILAR PROBLEM
+
+begin
+  proc R
+  begin
+    # R's body code ...
+    call R
+    # ...
+  end;
+  # ...
+  call R
+  # ...
+end.
+
+Before storing code for R,
+  how do we know where it starts?
+
+
+
+  MUTUAL RECURSION (NOT IN OUR LANGUAGE)
+        
+begin
+  proc O
+  begin # O's body code...
+    call E
+    # ...
+  end;
+
+  proc E;
+  begin
+    # E's body code ...
+    call O
+    # ...
+  end;
+
+  # ...
+  call O;
+  call E
+  # ...
+end.
+
+One of these must before the other in
+  the code area of the VM...
+
+
+
+
+       SOLUTION STRATEGIES FOR CALLS
+
+[Multiple passes]:
+  1. Generate code for each procedure
+     (+ store offsets in symbol table,
+      + layout procedure code in memory
+        with placholders for calls)
+  2. Gather table of addresses
+     (map from names to addresses,
+      using offsets and beginning address)
+  3. Patch up code addresses for calls
+     (+ output code)
+
+[Lazy evaluation, labels]:
+  1. Generate code for each procedure
+     with calls to "labels"
+     (+ store or update
+        labels in symbol table)
+  (+ output code)
+
+    GENERAL SOLUTION: MULTIPLE PASSES
+
+Problem: where does each procedure start?
+
+Passes over the IR:
+  1. Compile all procedure code
+     (now know how big each procedure is)
+  2. Lay out procedure code in memory
+     (now know where each starts)
+  3. Change each call instruction
+
+
+
+
+        GENERAL SOLUTION: LABELS
+
+Use "labels" to allow
+
+
+
+Term "label" is from assembly language
+
+    ;  ...
+    jmp L
+    ; ...
+    L: ; ...
+
+
+        APPROACHES TO FIXING LABELS
+
+Problem: convert labels to addresses
+
+ (1) Use multiple passes
+       a. Generate code with labels
+       b. Lay out memory for procedures
+          (determine starting addresses)
+       c. Change labels to addresses
+
+     advantages:
+
+
+     disadvantages:
+
+
+
+ (2) Use shared mutable data (lazy eval.)
+       a. labels are unique placeholders,
+          shared by all uses (calls)
+       b. when address is determined,
+          update the placeholder
+          (and all uses are updated)
+
+     advantages:
+
+
+     disadvantages:
+
+
+
+
+
+
+    LABEL DATA STRUCTURE FOR LAZY EVAL
+
+// file label.h
+// ...
+#include "machine_types.h"
+
+typedef struct {
+    bool is_set;
+    unsigned int word_offset;
+} label;
+
+// Return a fresh label that is not set
+extern label *label_create();
+
+// Requires: lab != NULL
+// Set the address in the label
+extern void label_set(label *lab,
+               unsigned int word_offset);
+
+// Is the given label set?
+extern bool label_is_set(label *lab);
+
+// Requires: label_is_set(lab)
+// Return the word offset in lab
+extern
+unsigned int label_read(label *lab);
