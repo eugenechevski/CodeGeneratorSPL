@@ -9,6 +9,7 @@
 #define GP 0
 #define SP 1
 #define FP 2
+#define R3 3
 #define RA 7
 
 // requires 0 <= n && n < NUM_REGISTERS

@@ -60,6 +60,11 @@
     "gen_code.h": "c",
     "literal_table.h": "c",
     "code_seq.h": "c",
-    "code_utils.h": "c"
+    "code_utils.h": "c",
+    "ast.h": "c",
+    "instruction.h": "c",
+    "assert.h": "c",
+    "stdlib.h": "c",
+    "string.h": "c"
   }
 }
