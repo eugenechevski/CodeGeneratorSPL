@@ -3,59 +3,39 @@
 #define STACK_SPACE 4096
 
 // Initialize the code generator
-void gen_code_initialize()
+void gen_code_seq_initialize()
 {
     literal_table_initialize();
 }
 
-// Requires: bf if open for writing in binary
-// and prior to this scope checking and type checking have been done.
-// Write all the instructions in cs to bf in order
-static void gen_code_output_seq(BOFFILE bf, code_seq cs)
-{
-    while (!code_seq_is_empty(cs))
-    {
+// Write a sequence of instructions to the BOF file
+static void gen_code_output_seq(BOFFILE bf, code_seq cs) {
+    while (!code_seq_is_empty(cs)) {
         bin_instr_t inst = code_seq_first(cs)->instr;
         instruction_write_bin_instr(bf, inst);
         cs = code_seq_rest(cs);
     }
 }
 
-// Return a header appropriate for the give code
-static BOFHeader gen_code_program_header(code_seq main_cs)
-{
+// Generate the BOF header
+static BOFHeader gen_code_program_header(code_seq main_cs) {
     BOFHeader ret;
 
-    // magic
-    strncpy(ret.magic, "MAGIC", 4);
-
-    // text start address
+    strncpy(ret.magic, "MAGIC", 4); // SPL magic number
     ret.text_start_address = 0;
-
-    // text length
     ret.text_length = code_seq_size(main_cs) * BYTES_PER_WORD;
-
-    // data start address
-    int dsa = MAX(ret.text_length, 1024) + BYTES_PER_WORD;
-    ret.data_start_address = dsa;
-
-    // data length
+    ret.data_start_address = MAX(ret.text_length, 1024) + BYTES_PER_WORD;
     ret.data_length = literal_table_size() * BYTES_PER_WORD;
-
-    // stack bottom address
-    int sba = dsa + ret.data_length + STACK_SPACE;
-    ret.stack_bottom_addr = sba;
+    ret.stack_bottom_addr = ret.data_start_address + ret.data_length + STACK_SPACE;
 
     return ret;
 }
 
-static void gen_code_output_literals(BOFFILE bf)
-{
+// Write literals to the BOF file
+static void gen_code_output_literals(BOFFILE bf) {
     literal_table_start_iteration();
-    while (literal_table_iteration_has_next())
-    {
+    while (literal_table_iteration_has_next()) {
         word_type w = literal_table_iteration_next();
-        // debug_print("Writing literal %f to BOF file\n", w);
         bof_write_word(bf, w);
     }
     literal_table_end_iteration();
@@ -72,36 +52,32 @@ static void gen_code_output_program(BOFFILE bf, code_seq main_cs)
     bof_close(bf);
 }
 
-// Requires: bf if open for writing in binary
-// Generate code for prog into bf
-void gen_code_program(BOFFILE bf, block_t prog)
-{
-    code_seq main_cs;
+// Generate code for the entire program
+void gen_code_seq_program(BOFFILE bf, block_t prog) {
+    code_seq main_cs = code_utils_set_up_program();
 
-    // Set up the program's activation record
-    main_cs = code_utils_set_up_program();
-
-    // Allocate space and initialize any variables
-    code_seq var_decls_cs = gen_code_var_decls(prog.var_decls);
+    // Handle variable declarations
+    code_seq var_decls_cs = gen_code_seq_var_decls(prog.var_decls);
     code_seq_concat(&main_cs, var_decls_cs);
 
-    // Generate code for the program's statements
-    code_seq stmts_cs = gen_code_stmts(prog.stmts);
+    // Handle constant declarations
+    code_seq const_decls_cs = gen_code_const_decls(prog.const_decls);
+    code_seq_concat(&main_cs, const_decls_cs);
+
+    // Generate code for statements
+    code_seq stmts_cs = gen_code_seq_stmts(prog.stmts);
     code_seq_concat(&main_cs, stmts_cs);
 
-    // Deallocate the space used by variables
+    // Deallocate stack space for variables
     int total_stack_space = calculate_total_stack_space(prog.var_decls);
     code_seq dealloc_cs = code_utils_deallocate_stack_space(total_stack_space);
     code_seq_concat(&main_cs, dealloc_cs);
 
-    // Tear down the program's activation record
+    // Tear down activation record and add exit instruction
     code_seq tear_down_cs = code_utils_tear_down_program();
     code_seq_concat(&main_cs, tear_down_cs);
-
-    // Add the exit instruction
     code_seq_add_to_end(&main_cs, code_exit(0));
 
-    // Output the generated code
     gen_code_output_program(bf, main_cs);
 }
 
@@ -113,7 +89,7 @@ int calculate_total_stack_space(var_decls_t var_decls)
     {
         // Assuming each identifier takes up one word
         int num_idents = count_idents(vdp->ident_list);
-        total_space += num_idents * BYTES_PER_WORD;
+        total_space += num_idents ;//* BYTES_PER_WORD;
         vdp = vdp->next;
     }
     return total_space;
@@ -130,66 +106,133 @@ int count_idents(ident_list_t idents)
     }
     return count;
 }
-
-// Generate code for the var_decls_t vds to out
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-code_seq gen_code_var_decls(var_decls_t vds)
+/*code_seq gen_code_const_decls(const_decls_t cds)
 {
-    code_seq ret = code_seq_empty();
-    var_decl_t *vdp = vds.var_decls;
-    while (vdp != NULL)
-    {
-        // generate these in reverse order,
-        // so the addressing offsets work properly
-        ret = code_seq_concat(&gen_code_var_decl(*vdp), ret);
-        vdp = vdp->next;
-    }
-    return ret;
-}
-
-// Generate code for a single <var-decl>, vd,
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-code_seq gen_code_var_decl(var_decl_t vd)
-{
-    return gen_code_idents(vd.ident_list, vd.type_tag);
-}
-
-// Generate code for the identififers in idents with type vt
-// in reverse order (so the first declared are allocated last).
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-code_seq gen_code_idents(ident_list_t idents,
-                         AST_type vt)
-{
-    code_seq ret = code_seq_empty();
-    ident_t *idp = idents.start;
-    while (idp != NULL)
-    {
-        code_seq alloc_and_init = code_seq_singleton(code_addi(SP, SP,
-                                                               -BYTES_PER_WORD));
-        switch (vt)
-        {
-        case var_decl_ast:
-            alloc_and_init = code_seq_add_to_end(alloc_and_init,
-                                                 code_fsw(SP, 0, 0));
-            break;
-        case bool_te:
-            alloc_and_init = code_seq_add_to_end(alloc_and_init,
-                                                 code_sw(SP, 0, 0));
-            break;
-        default:
-            bail_with_error("Bad type_exp_e (%d) passed to gen_code_idents!",
-                            vt);
-            break;
+  code_seq seq = code_seq_empty();
+    for (const_decl_t *decl = cds.start; decl; decl = decl->next) {
+        for (const_def_t *def = decl->const_def_list.start; def; def = def->next) {
+            //int index = literal_table_add(literal_table, def->number.value);
+            int index = literal_table_lookup(def->ident.name, def->number.value);
+            code *instr = code_lit(0, 0, index);
+            code_seq_add_to_end(&seq, instr);
         }
-        // Generate these in revese order,
-        // so addressing works propertly
-        ret = code_seq_concat(alloc_and_init, ret);
-        idp = idp->next;
+    }
+    return seq;
+}*/
+// Generate code for variable declarations
+code_seq gen_code_seq_var_decls(var_decls_t vds) {
+    code_seq ret = code_seq_empty();
+    var_decl_t *var_decl = vds.var_decls;
+    while (var_decl != NULL) {
+        code_seq var_decl_cs = gen_code_seq_var_decl(*var_decl);
+        code_seq_concat(&ret, var_decl_cs);
+        var_decl = var_decl->next;
     }
     return ret;
+}
+
+// Generate code for a single variable declaration
+code_seq gen_code_seq_var_decl(var_decl_t vd) {
+    return gen_code_seq_idents(vd.ident_list);
+}
+
+// Generate code for variable identifiers
+code_seq gen_code_seq_idents(ident_list_t idents) {
+     
+    code_seq ret = code_seq_empty();
+    ident_t *ident = idents.start;
+
+    // Instructions are appended in reverse order
+    // so that the first declared identifier is allocated last
+    while (ident != NULL) {
+        // Allocate space for the identifier on the stack
+        code_seq alloc = code_utils_allocate_stack_space(1);
+
+         
+        int levelsOut = ident->idu->levelsOutward;
+        int offset = id_use_get_attrs(ident->idu)->offset_count;
+        code_seq base = code_utils_compute_fp(R3, levelsOut);
+        code_seq_add_to_end(&alloc, base.first);
+        code_seq_add_to_end(&alloc, code_cpw(SP, 0, R3, offset)); // Copy value from R3 + offset to SP
+        
+        // Concatenate this identifier's code into the result sequence
+        code_seq_add_to_end(&alloc, code_lit(SP, 0, 0)); // Zero out the allocated space
+        code_seq_add_to_end(&alloc, code_sri(SP, 1)); // Increment SP
+        break;
+        
+        // Concatenate this identifier's code into the result sequence
+        code_seq_concat(&ret, alloc);
+
+        // Move to the next identifier in the list
+        ident = ident->next;
+    }
+
+    return ret;
+}
+
+// Generate code for constant declarations
+code_seq gen_code_const_decls(const_decls_t cds) {
+    code_seq ret = code_seq_empty();
+    const_decl_t *const_decl = cds.start;
+    while (const_decl != NULL) {
+        code_seq const_decl_cs = gen_code_const_decl(*const_decl);
+        code_seq_concat(&ret, const_decl_cs);
+        const_decl = const_decl->next;
+    }
+    return ret;
+}
+
+// Generate code for a single constant declaration
+code_seq gen_code_const_decl(const_decl_t cd) {
+    return gen_code_const_def_list(cd.const_def_list);
+}
+
+// Generate code for a list of constant definitions
+code_seq gen_code_const_def_list(const_def_list_t cdl) {
+    code_seq ret = code_seq_empty();
+    const_def_t *const_def = cdl.start;
+    while (const_def != NULL) {
+        code_seq const_def_cs = gen_code_const_def(*const_def);
+        code_seq_concat(&ret, const_def_cs);
+        const_def = const_def->next;
+    }
+    return ret;
+}
+
+// Generate code for a single constant definition
+code_seq gen_code_const_def(const_def_t cd) {
+    /*
+        How to initialize constants?
+            use literal table to find each constant's offset
+            then copy from $gp+offset to the storage allocated
+    */
+
+    /*ident_t ident = cd.ident;
+
+    // Allocate space for the identifier on the stack
+    code_seq alloc = code_utils_allocate_stack_space(1);
+    // Initialize constant using literal table
+    // Find the offset of the constant
+    unsigned int offset = id_use_get_attrs(ident.idu)->offset_count;
+    code_seq_add_to_end(&alloc, code_cpw(SP, 0, GP, offset)); // Load constant from GP + offset*/
+    
+    ident_t ident = cd.ident;
+
+    // Look up or insert the constant into the literal table
+    unsigned int offset = literal_table_lookup(ident.name, cd.number.value);
+
+    // Allocate space for the identifier on the stack
+    code_seq alloc = code_utils_allocate_stack_space(1);
+
+    // Initialize constant using literal table offset
+    // Load constant from GP + offset to allocated space
+    code_seq_add_to_end(&alloc, code_cpw(SP, 0, GP, offset)); // Copy constant from GP + offset to SP
+
+    // Concatenate the generated code for the constant into the result sequence
+    code_seq_add_to_end(&alloc, code_lit(SP, 0, 0)); // Zero out the allocated space
+    code_seq_add_to_end(&alloc, code_sri(SP, 1)); // Increment SP
+
+    return alloc;
 }
 
 // Generate code for stmt
@@ -198,22 +241,19 @@ code_seq gen_code_stmt(stmt_t stmt)
     switch (stmt.stmt_kind)
     {
     case assign_stmt:
-        return gen_code_assign_stmt(stmt.data.assign_stmt);
-        break;
-    case call_stmt:
-        return gen_code_call_stmt(stmt.data.call_stmt);
+        return gen_code_seq_assign_stmt(stmt.data.assign_stmt);
         break;
     case if_stmt:
-        return gen_code_if_stmt(stmt.data.if_stmt);
+        return gen_code_seq_if_stmt(stmt.data.if_stmt);
         break;
     case while_stmt:
         return gen_code_while_stmt(stmt.data.while_stmt);
         break;
     case read_stmt:
-        return gen_code_read_stmt(stmt.data.read_stmt);
+        return gen_code_seq_read_stmt(stmt.data.read_stmt);
         break;
     case print_stmt:
-        return gen_code_print_stmt(stmt.data.print_stmt);
+        return gen_code_seq_print_stmt(stmt.data.print_stmt);
         break;
     case block_stmt:
         return gen_code_block_stmt(stmt.data.block_stmt);
@@ -227,49 +267,43 @@ code_seq gen_code_stmt(stmt_t stmt)
 }
 
 // Generate code for stmt
-code_seq gen_code_assign_stmt(assign_stmt_t stmt)
+code_seq gen_code_seq_assign_stmt(assign_stmt_t stmt)
 {
     // can't call gen_code_ident,
     // since stmt.name is not an ident_t
     code_seq ret;
+
     // put value of expression in $v0
-    ret = gen_code_expr(*(stmt.expr));
+    ret = gen_code_seq_expr(*(stmt.expr));
     assert(stmt.idu != NULL);
     assert(id_use_get_attrs(stmt.idu) != NULL);
-    type_exp_e typ = id_use_get_attrs(stmt.idu)->type;
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, typ));
+
+    id_kind typ = id_use_get_attrs(stmt.idu)->kind;
+
+    code_seq_concat(&ret, code_utils_pop_stack_into_reg(V0, typ));
     // put frame pointer from the lexical address of the name
     // (using stmt.idu) into $t9
-    ret = code_seq_concat(ret,
-                          code_compute_fp(T9, stmt.idu->levelsOutward));
+
+    code_seq_concat(&ret,
+                    code_utils_compute_fp(T9, stmt.idu->levelsOutward));
     unsigned int offset_count = id_use_get_attrs(stmt.idu)->offset_count;
     assert(offset_count <= USHRT_MAX); // it has to fit!
-    switch (id_use_get_attrs(stmt.idu)->type)
+
+    switch (id_use_get_attrs(stmt.idu)->kind)
     {
-    case float_te:
-        ret = code_seq_add_to_end(ret,
-                                  code_fsw(T9, V0, offset_count));
+    case constant_idk:
+        code_seq_add_to_end(&ret,
+                            code_fsw(T9, V0, offset_count));
         break;
-    case bool_te:
-        ret = code_seq_add_to_end(ret,
-                                  code_sw(T9, V0, offset_count));
+    case variable_idk:
+        code_seq_add_to_end(&ret,
+                            code_sw(T9, V0, offset_count));
         break;
     default:
-        bail_with_error("Bad var_type (%d) for ident in assignment stmt!",
-                        id_use_get_attrs(stmt.idu)->type);
+        bail_with_error("Bad kind (%d) for ident in assignment stmt!",
+                        id_use_get_attrs(stmt.idu)->kind);
         break;
     }
-    return ret;
-}
-
-// Generate code for stmt
-code_seq gen_code_call_stmt(call_stmt_t stmt)
-{
-    // put frame pointer from the lexical address of the name
-    // (using stmt.idu) into $t9
-    code_seq ret = code_compute_fp(T9, stmt.idu->levelsOutward);
-    // call the function
-    ret = code_seq_add_to_end(ret, code_jal(T9));
     return ret;
 }
 
@@ -277,10 +311,10 @@ code_seq gen_code_call_stmt(call_stmt_t stmt)
 code_seq gen_code_stmts(stmts_t stmts)
 {
     code_seq ret = code_seq_empty();
-    stmt_t *sp = stmts.stmts;
+    stmt_t *sp = stmts.stmt_list.start;
     while (sp != NULL)
     {
-        ret = code_seq_concat(ret, gen_code_stmt(*sp));
+        code_seq_concat(&ret, gen_code_stmt(*sp));
         sp = sp->next;
     }
     return ret;
@@ -290,12 +324,12 @@ code_seq gen_code_stmts(stmts_t stmts)
 code_seq gen_code_if_stmt(if_stmt_t stmt)
 {
     // put truth value of stmt.expr in $v0
-    code_seq ret = gen_code_expr(stmt.expr);
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, bool_te));
+    code_seq ret = gen_code_seq_expr(stmt.expr);
+    code_seq_concat(&ret, code_pop_stack_into_reg(V0, bool_te));
     code_seq cbody = gen_code_stmt(*(stmt.body));
     int cbody_len = code_seq_size(cbody);
     // skip over body if $v0 contains false
-    ret = code_seq_add_to_end(ret,
+    code_seq_add_to_end(&ret,
                               code_beq(V0, 0, cbody_len));
     return code_seq_concat(ret, cbody);
 }
@@ -307,15 +341,15 @@ code_seq gen_code_while_stmt(while_stmt_t stmt)
     code_seq cbody = gen_code_stmt(*(stmt.body));
     int cbody_len = code_seq_size(cbody);
     // put truth value of stmt.expr in $v0
-    ret = gen_code_expr(stmt.expr);
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, bool_te));
+    ret = gen_code_seq_expr(stmt.expr);
+    code_seq_concat(&ret, code_pop_stack_into_reg(V0, bool_te));
     // skip over body if $v0 contains false
-    ret = code_seq_add_to_end(ret,
+    code_seq_add_to_end(&ret,
                               code_beq(V0, 0, cbody_len));
     // add the body
-    ret = code_seq_concat(ret, cbody);
+    code_seq_concat(&ret, cbody);
     // add the loop back
-    ret = code_seq_add_to_end(ret,
+    code_seq_add_to_end(&ret,
                               code_b(0, -cbody_len - code_seq_size(ret)));
     return ret;
 }
@@ -328,12 +362,12 @@ code_seq gen_code_read_stmt(read_stmt_t stmt)
     // put frame pointer from the lexical address of the name
     // (using stmt.idu) into $t9
     assert(stmt.idu != NULL);
-    ret = code_seq_concat(ret,
+    code_seq_concat(&ret,
                           code_compute_fp(T9, stmt.idu->levelsOutward));
     assert(id_use_get_attrs(stmt.idu) != NULL);
     unsigned int offset_count = id_use_get_attrs(stmt.idu)->offset_count;
     assert(offset_count <= USHRT_MAX); // it has to fit!
-    ret = code_seq_add_to_end(ret,
+    code_seq_add_to_end(&ret,
                               code_seq_singleton(code_fsw(T9, V0, offset_count)));
     return ret;
 }
@@ -342,10 +376,10 @@ code_seq gen_code_read_stmt(read_stmt_t stmt)
 code_seq gen_code_print_stmt(print_stmt_t stmt)
 {
     // put value of expression in $v0
-    code_seq ret = gen_code_expr(stmt.expr);
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, float_te));
+    code_seq ret = gen_code_seq_expr(stmt.expr);
+    code_seq_concat(&ret, code_pop_stack_into_reg(V0, float_te));
     // print the value
-    ret = code_seq_add_to_end(ret, code_fpr(V0));
+    code_seq_add_to_end(&ret, code_fpr(V0));
     return ret;
 }
 
@@ -360,11 +394,11 @@ code_seq gen_code_block_stmt(block_stmt_t stmt)
 // putting the result on top of the stack,
 // and using V0 and AT as temporary registers
 // May also modify SP, HI,LO when executed
-code_seq gen_code_expr(expr_t exp)
+code_seq gen_code_seq_expr(expr_t exp)
 {
     switch (exp.expr_kind)
     {
-    case expr_bin_op:
+    case expr_bin:
         return gen_code_binary_op_expr(exp.data.binary);
         break;
     case expr_ident:
@@ -373,8 +407,8 @@ code_seq gen_code_expr(expr_t exp)
     case expr_number:
         return gen_code_number(exp.data.number);
         break;
-    case expr_logical_not:
-        return gen_code_logical_not_expr(*(exp.data.logical_not));
+    case expr_negated:
+        return gen_code_negated(exp.data.negated);
         break;
     default:
         bail_with_error("Unexpected expr_kind_e (%d) in gen_code_expr",
@@ -392,13 +426,13 @@ code_seq gen_code_expr(expr_t exp)
 code_seq gen_code_binary_op_expr(binary_op_expr_t exp)
 {
     // put the values of the two subexpressions on the stack
-    code_seq ret = gen_code_expr(*(exp.expr1));
-    ret = code_seq_concat(ret, gen_code_expr(*(exp.expr2)));
+    code_seq ret = gen_code_seq_expr(*(exp.expr1));
+    code_seq_concat(&ret, gen_code_seq_expr(*(exp.expr2)));
     // check the types match
     type_exp_e t1 = ast_expr_type(*(exp.expr1));
     assert(ast_expr_type(*(exp.expr2)) == t1);
     // do the operation, putting the result on the stack
-    ret = code_seq_concat(ret, gen_code_op(exp.op, t1));
+    code_seq_concat(&ret, gen_code_op(exp.op, t1));
     return ret;
 }
 
@@ -444,7 +478,7 @@ code_seq gen_code_arith_op(token_t arith_op)
     // load top of the stack (the second operand) into AT
     code_seq ret = code_pop_stack_into_reg(AT, float_te);
     // load next element of the stack into V0
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, float_te));
+    code_seq_concat(&ret, code_pop_stack_into_reg(V0, float_te));
 
     code_seq do_op = code_seq_empty();
     switch (arith_op.code)
@@ -480,7 +514,7 @@ code_seq gen_code_rel_op(token_t rel_op, type_exp_e typ)
     // load top of the stack (the second operand) into AT
     code_seq ret = code_pop_stack_into_reg(AT, typ);
     // load next element of the stack into V0
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(V0, typ));
+    code_seq_concat(&ret, code_pop_stack_into_reg(V0, typ));
 
     // start out by doing the comparison
     // and skipping the next 2 instructions if it's true
@@ -560,12 +594,12 @@ code_seq gen_code_rel_op(token_t rel_op, type_exp_e typ)
                         rel_op.code);
         break;
     }
-    ret = code_seq_concat(ret, do_op);
+    code_seq_concat(&ret, do_op);
     // rest of the code for the comparisons
-    ret = code_seq_add_to_end(ret, code_add(0, 0, AT));  // put false in AT
-    ret = code_seq_add_to_end(ret, code_beq(0, 0, 1));   // skip next instr
-    ret = code_seq_add_to_end(ret, code_addi(0, AT, 1)); // put true in AT
-    ret = code_seq_concat(ret, code_push_reg_on_stack(AT, bool_te));
+    code_seq_add_to_end(&ret, code_add(0, 0, AT));  // put false in AT
+    code_seq_add_to_end(&ret, code_beq(0, 0, 1));   // skip next instr
+    code_seq_add_to_end(&ret, code_addi(0, AT, 1)); // put true in AT
+    code_seq_concat(&ret, code_push_reg_on_stack(AT, bool_te));
     return ret;
 }
 
@@ -582,12 +616,12 @@ code_seq gen_code_ident(ident_t id)
     type_exp_e typ = id_use_get_attrs(id.idu)->type;
     if (typ == float_te)
     {
-        ret = code_seq_add_to_end(ret,
+        code_seq_add_to_end(&ret,
                                   code_flw(T9, V0, offset_count));
     }
     else
     {
-        ret = code_seq_add_to_end(ret,
+        code_seq_add_to_end(&ret,
                                   code_lw(T9, V0, offset_count));
     }
     return code_seq_concat(ret, code_push_reg_on_stack(V0, typ));
@@ -606,19 +640,21 @@ code_seq gen_code_number(number_t num)
 // putting the result on top of the stack,
 // and using V0 and AT as temporary registers
 // May also modify SP, HI,LO when executed
-code_seq gen_code_logical_not_expr(expr_t exp)
+code_seq gen_code_negated(negated_expr_t exp)
 {
-    code_seq ret = gen_code_expr(exp);
-    ret = code_seq_concat(ret, code_pop_stack_into_reg(AT, bool_te));
+    code_seq ret = gen_code_seq_expr(exp);
+
+    code_seq_concat(&ret, code_pop_stack_into_reg(AT, bool_te));
     // if 0 skip next 2 instructions
-    ret = code_seq_add_to_end(ret, code_beq(0, AT, 2));
+    code_seq_add_to_end(&ret, code_beq(0, AT, 2));
     // it was 1, so put 0 in AT
-    ret = code_seq_add_to_end(ret, code_add(0, 0, AT));
+    code_seq_add_to_end(&ret, code_add(0, 0, AT));
     // and skip the next instruction
-    ret = code_seq_add_to_end(ret, code_beq(0, 0, 1));
+    code_seq_add_to_end(&ret, code_beq(0, 0, 1));
     // put 1 in AT
-    ret = code_seq_add_to_end(ret, code_addi(0, AT, 1));
+    code_seq_add_to_end(&ret, code_addi(0, AT, 1));
     // push the result on the stack
-    ret = code_seq_concat(ret, code_push_reg_on_stack(AT, bool_te));
+    code_seq_concat(&ret, code_push_reg_on_stack(AT, bool_te));
+    
     return ret;
 }

@@ -24,10 +24,17 @@ extern void gen_code_seq_initialize();
 // Generate code_seq for the given AST
 extern void gen_code_seq_program(BOFFILE bf, block_t prog);
 
+extern int calculate_total_stack_space(var_decls_t var_decls);
+
+extern int count_idents(ident_list_t idents);
 // Requires: bf if open for writing in binary
 // Generate code_seq for prog into bf
 extern void gen_code_seq_program(BOFFILE bf, block_t prog);
 
+extern code_seq gen_code_const_decls(const_decls_t cds);
+extern code_seq gen_code_const_decl(const_decl_t cd);
+extern code_seq gen_code_const_def_list(const_def_list_t cdl);
+extern code_seq gen_code_const_def(const_def_t cd);
 // Generate code_seq for the var_decls_t vds to out
 // There are 2 instructions generated for each identifier declared
 // (one to allocate space and another to initialize that space)
@@ -61,6 +68,9 @@ extern code_seq gen_code_seq_read_stmt(read_stmt_t stmt);
 
 // Generate code_seq for the write statement given by stmt.
 extern code_seq gen_code_seq_print_stmt(print_stmt_t stmt);
+
+extern code_seq gen_code_while_stmt(while_stmt_t stmt);
+extern  code_seq gen_code_block_stmt(block_stmt_t stmt);
 
 // Generate code_seq for the expression exp
 // putting the result on top of the stack,
