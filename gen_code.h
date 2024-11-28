@@ -22,85 +22,106 @@ extern void gen_code_seq_initialize();
 
 // Requires: bf if open for writing in binary
 // Generate code_seq for the given AST
-extern void gen_code_seq_program(BOFFILE bf, block_t prog);
+extern void gen_code_output_seq(BOFFILE bf, code_seq cs);
 
 // Requires: bf if open for writing in binary
-// Generate code_seq for prog into bf
-extern void gen_code_seq_program(BOFFILE bf, block_t prog);
+// Write the program's BOFFILE to bf
+extern BOFHeader gen_code_program_header(code_seq main_cs);
+
+// Requires: bf is open for writing in binary
+// Write literals to the BOF file
+extern void gen_code_output_literals(BOFFILE bf);
+
+// Requires: bf if open for writing in binary
+// Generate code_seq for the given AST
+extern void gen_code_output_program(BOFFILE bf, code_seq main_cs);
+
+// Requires: bf is open for writing in binary
+// Generate code for the entire program
+extern void gen_code_program(BOFFILE bf, block_t prog);
 
 // Generate code_seq for the var_decls_t vds to out
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-extern code_seq gen_code_seq_var_decls(var_decls_t vds);
+extern code_seq gen_code_var_decls(var_decls_t vds);
 
 // Generate code_seq for a single <var-decl>, vd,
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-extern code_seq gen_code_seq_var_decl(var_decl_t vd);
+extern code_seq gen_code_var_decl(var_decl_t vd);
 
 // Generate code_seq for the identifiers in idents with type t
-// in reverse order (so the first declared are allocated last).
-// There are 2 instructions generated for each identifier declared
-// (one to allocate space and another to initialize that space)
-extern code_seq gen_code_seq_idents(ident_list_t idents);
+extern code_seq gen_code_var_idents(ident_list_t idents);
 
-// Generate code_seq for stmt
-extern code_seq gen_code_seq_stmt(stmt_t stmt);
+// Generate code for constant declarations
+extern code_seq gen_code_const_decls(const_decls_t cds);
 
-// Generate code_seq for stmt
-extern code_seq gen_code_seq_assign_stmt(assign_stmt_t stmt);
+// Generate code for a single constant declaration
+extern code_seq gen_code_const_decl(const_decl_t cd);
 
-// Generate code_seq for the list of statements given by stmts to out
-extern code_seq gen_code_seq_stmts(stmts_t stmts);
+// Generate code for a list of constant definitions
+extern code_seq gen_code_const_def_list(const_def_list_t cdl);
 
-// Generate code_seq for the if-statement given by stmt
-extern code_seq gen_code_seq_if_stmt(if_stmt_t stmt);
+// Generate code for a single constant definition
+extern code_seq gen_code_const_def(const_def_t cd);
 
-// Generate code_seq for the read statement given by stmt
-extern code_seq gen_code_seq_read_stmt(read_stmt_t stmt);
+// Generate code for the list of statments given by stmts
+extern code_seq gen_code_stmts(stmts_t stmts);
 
-// Generate code_seq for the write statement given by stmt.
-extern code_seq gen_code_seq_print_stmt(print_stmt_t stmt);
+// Generate code for stmt
+extern code_seq gen_code_stmt(stmt_t stmt); // Generate code for stmt
 
-// Generate code_seq for the expression exp
+// Generate code for an assignment statement
+extern code_seq gen_code_assign_stmt(assign_stmt_t stmt);
+
+// Generate code for the if-statement
+extern code_seq gen_code_if_stmt(if_stmt_t stmt);
+
+// Generate code for the condition
+extern code_seq gen_code_condition(condition_t cond);
+
+// Generate code for a relational condition
+extern code_seq gen_code_rel_op_condition(rel_op_condition_t cond);
+
+// Generate code for a divisible condition
+extern code_seq gen_code_db_condition(db_condition_t cond);
+
+// Generate code for a while statement
+extern code_seq gen_code_while_stmt(while_stmt_t stmt);
+
+// Generate code for the read statement
+extern code_seq gen_code_read_stmt(read_stmt_t stmt);
+
+// Generate code for a print statement
+extern code_seq gen_code_print_stmt(print_stmt_t stmt);
+
+// Generate code for the block statement given by stmt
+extern code_seq gen_code_block_stmt(block_stmt_t stmt);
+
+// Generate code for the expression exp
 // putting the result on top of the stack,
-// and using V0 and AT as temporary registers
-// May also modify SP, HI,LO when executed
-extern code_seq gen_code_seq_expr(expr_t exp);
+extern code_seq gen_code_expr(expr_t exp);
 
-// Generate code_seq for the expression exp
+// Generate code for the expression exp
 // putting the result on top of the stack,
-// and using V0 and AT as temporary registers
-// May also modify SP, HI,LO when executed
-extern code_seq gen_code_seq_binary_op_expr(binary_op_expr_t exp);
+extern code_seq gen_code_binary_op_expr(binary_op_expr_t exp);
 
-// Generate code_seq to apply the floating-point arith_op to the
+// Generate code to apply op to the
 // 2nd from top and top of the stack,
 // putting the result on top of the stack in their place,
-// and using V0 and AT as temporary registers
-// Also modifies SP when executed
-extern code_seq gen_code_seq_arith_op(token_t arith_op);
+extern code_seq gen_code_op(token_t op);
 
-// Generate code_seq for the rel_op
-// applied to 2nd from top and top of the stack,
-// putting the result on top of the stack in their place,
-// and using V0 and AT as temporary registers
-// Also modifies SP when executed
-extern code_seq gen_code_seq_rel_op(token_t rel_op);
+// Generate code to apply the arithmetic operation to the top two stack elements
+extern code_seq gen_code_arith_op(token_t arith_op);
 
-// Generate code_seq to put the value of the given identifier
+// Generate code for a relational operator
+extern code_seq gen_code_rel_op(token_t rel_op);
+
+// Generate code to put the value of the given identifier
 // on top of the stack
-// Modifies T9, V0, and SP when executed
-extern code_seq gen_code_seq_ident(ident_t id);
+extern code_seq gen_code_ident(ident_t id);
 
-// Generate code_seq to put the given number on top of the stack
-// Modifies V0 when executed
-extern code_seq gen_code_seq_number(number_t num);
+// Generate code to put the given number on top of the stack
+extern code_seq gen_code_number(number_t num);
 
-// Generate code_seq for the expression exp
+// Generate code for the expression exp
 // putting the result on top of the stack,
-// and using V0 and AT as temporary registers
-// May also modify SP, HI,LO when executed
-extern code_seq gen_code_seq_logical_not_expr(expr_t exp);
+extern code_seq gen_code_negated(negated_expr_t exp);
 
 #endif
